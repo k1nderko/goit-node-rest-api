@@ -3,19 +3,28 @@ import HttpError from "../helpers/HttpError.js";
 import ctrlWrapper from "../decorators/ctrlWrapper.js";
 import compareHash from "../helpers/compareHash.js";
 import { createToken } from "../helpers/jwt.js";
+import gravatar from "gravatar";
+import jimp from "jimp";
+import fs from "fs/promises";
+import path from "path";
+
+const avatarsPath = path.resolve("public", "avatars");
 
 const signup = async (req, res) => {
     const {email} = req.body;
+    const avatarURL = gravatar.url(email,  { s: '250', r: 'g', d: 'wavatar' });
+
     const user = await authServices.findUser({email});
     if(user) {
         throw HttpError(409, "Email in use");
     }
-    const newUser = await authServices.saveUser(req.body);
+    const newUser = await authServices.saveUser(req.body, avatarURL);
 
     res.status(201).json({
         user: {
-        email: newUser.email,
-        subscription: newUser.subscription,
+            email: newUser.email,
+            subscription: newUser.subscription,
+            avatarURL: newUser.avatarURL,
         }
     })
 }
@@ -77,7 +86,27 @@ const updateSubscription = async (req, res) => {
         message: "Subscription update success",
         subscription: updatedUser.subscription,
     });
-}
+};
+
+const updateAvatar = async (req, res) => {
+    if (!req.file) {
+        throw HttpError(400, "File not provided");
+    }
+
+    const { path: tempPath, filename } = req.file;
+    const newPath = path.join(avatarsPath, filename);
+    await fs.rename(tempPath, newPath);
+
+    const image = await jimp.read(newPath);
+    await image.resize(250, 250).writeAsync(newPath);
+
+    const avatarURL = path.join("avatars", filename);
+    const { _id } = req.user;
+    const updatedUser = await authServices.updateUser({ _id }, { avatarURL });
+
+    res.json({ avatarURL: updatedUser.avatarURL });
+};
+
 
 export default {
     signup: ctrlWrapper(signup),
@@ -85,4 +114,5 @@ export default {
     getCurrent: ctrlWrapper(getCurrent),
     signout: ctrlWrapper(signout),
     updateSubscription: ctrlWrapper(updateSubscription),
+    updateAvatar: ctrlWrapper(updateAvatar),
 }
